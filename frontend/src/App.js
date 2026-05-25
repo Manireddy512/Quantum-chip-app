@@ -1,479 +1,391 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 
 // ─────────────────────────────────────────────────────────────
-// Styles
+// Design tokens
 // ─────────────────────────────────────────────────────────────
-const S = {
-  app: {
-    display: "flex",
-    height: "100vh",
-    background: "#fff",
-    fontFamily: "monospace",
-    fontSize: 13,
-  },
-
-  left: {
-    width: 340,
-    minWidth: 340,
-    display: "flex",
-    flexDirection: "column",
-    borderRight: "1px solid #e0e0e0",
-    background: "#fafafa",
-  },
-
-  chatHead: {
-    padding: "12px 16px",
-    borderBottom: "1px solid #e0e0e0",
-    display: "flex",
-    alignItems: "center",
-    gap: 10,
-    background: "#fff",
-  },
-
-  led: {
-    width: 8,
-    height: 8,
-    borderRadius: "50%",
-    background: "#378ADD",
-  },
-
-  headTitle: {
-    fontSize: 13,
-    fontWeight: 600,
-    color: "#222",
-  },
-
-  msgs: {
-    flex: 1,
-    overflowY: "auto",
-    padding: 12,
-    display: "flex",
-    flexDirection: "column",
-    gap: 9,
-  },
-
-  msgBot: {
-    maxWidth: "88%",
-    padding: "9px 12px",
-    borderRadius: 10,
-    borderBottomLeftRadius: 2,
-    background: "#ebebeb",
-    color: "#222",
-    alignSelf: "flex-start",
-    lineHeight: 1.55,
-    fontSize: 12,
-  },
-
-  msgUser: {
-    maxWidth: "88%",
-    padding: "9px 12px",
-    borderRadius: 10,
-    borderBottomRightRadius: 2,
-    background: "#185FA5",
-    color: "#E6F1FB",
-    alignSelf: "flex-end",
-    lineHeight: 1.55,
-    fontSize: 12,
-  },
-
-  msgDim: {
-    maxWidth: "88%",
-    padding: "9px 12px",
-    borderRadius: 10,
-    background: "#ebebeb",
-    color: "#888",
-    alignSelf: "flex-start",
-    fontStyle: "italic",
-    fontSize: 12,
-  },
-
-  inpArea: {
-    padding: 10,
-    borderTop: "1px solid #e0e0e0",
-    display: "flex",
-    gap: 8,
-    alignItems: "flex-end",
-    background: "#fff",
-  },
-
-  textarea: {
-    flex: 1,
-    border: "1px solid #ccc",
-    borderRadius: 7,
-    padding: "8px 10px",
-    fontSize: 12,
-    fontFamily: "monospace",
-    resize: "none",
-    height: 64,
-    background: "#fff",
-    color: "#222",
-    outline: "none",
-  },
-
-  sendBtn: {
-    padding: "8px 14px",
-    background: "#185FA5",
-    color: "#E6F1FB",
-    border: "none",
-    borderRadius: 7,
-    fontSize: 12,
-    cursor: "pointer",
-    height: 64,
-    fontFamily: "monospace",
-    fontWeight: 600,
-  },
-
-  right: {
-    flex: 1,
-    display: "flex",
-    flexDirection: "column",
-  },
-
-  cvHead: {
-    padding: "10px 16px",
-    borderBottom: "1px solid #e0e0e0",
-    display: "flex",
-    alignItems: "center",
-    gap: 10,
-    background: "#fff",
-  },
-
-  cvLabel: {
-    fontSize: 12,
-    color: "#666",
-  },
-
-  dlBtn: {
-    padding: "5px 12px",
-    fontSize: 11,
-    border: "1px solid #ccc",
-    background: "#f0f0f0",
-    color: "#333",
-    borderRadius: 5,
-    cursor: "pointer",
-    fontFamily: "monospace",
-  },
-
-  cvWrap: {
-    flex: 1,
-    background: "#ffffff",
-    position: "relative",
-  },
-
-  pbar: {
-    padding: "7px 16px",
-    borderTop: "1px solid #e0e0e0",
-    display: "flex",
-    gap: 20,
-    flexWrap: "wrap",
-    background: "#fafafa",
-  },
-
-  pm: {
-    fontSize: 11,
-    color: "#888",
-  },
-
-  pmB: {
-    color: "#333",
-    fontWeight: 600,
-  },
+const T = {
+  bg: "#0a0e1a",
+  panel: "#0d1220",
+  border: "rgba(99,179,237,0.15)",
+  borderBright: "rgba(99,179,237,0.35)",
+  accent: "#63b3ed",
+  accentGlow: "rgba(99,179,237,0.6)",
+  accentDim: "rgba(99,179,237,0.08)",
+  text: "#e2eaf6",
+  textMuted: "#6b8cae",
+  textDim: "#3d5a78",
+  userBubble: "#1a3a5c",
+  botBubble: "#111827",
+  qubitFill: "#1e4a7a",
+  qubitStroke: "#63b3ed",
+  resonator: "#63b3ed",
+  pad: "#2a5080",
+  fontMono: "'JetBrains Mono', 'Fira Mono', monospace",
+  fontDisplay: "'Rajdhani', 'Orbitron', sans-serif",
 };
 
 // ─────────────────────────────────────────────────────────────
-// Canvas Renderer
+// Chip Canvas Renderer (SVG-based for crisp quality)
 // ─────────────────────────────────────────────────────────────
-function renderDesign(canvas, design) {
-  const ctx = canvas.getContext("2d");
+function ChipCanvas({ design }) {
+  const W = 480, H = 480;
+  const CX = W / 2, CY = H / 2;
+  const SCALE = 90;
 
-  const W = canvas.width;
-  const H = canvas.height;
+  const comps = design?.components || [];
+  const qubits = comps.filter(c => c.type === "qubit");
+  const resonators = comps.filter(c => c.type === "resonator");
+  const pads = comps.filter(c => c.type === "pad");
 
-  ctx.clearRect(0, 0, W, H);
+  const px = (v) => CX + v * SCALE;
+  const py = (v) => CY + v * SCALE;
 
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, W, H);
+  return (
+    <svg
+      viewBox={`0 0 ${W} ${H}`}
+      style={{ width: "100%", height: "100%", display: "block" }}
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <defs>
+        <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+          <feGaussianBlur stdDeviation="4" result="blur" />
+          <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+        </filter>
+        <filter id="glowStrong">
+          <feGaussianBlur stdDeviation="8" result="blur" />
+          <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+        </filter>
+        <radialGradient id="chipGrad" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor="#0d2040" />
+          <stop offset="100%" stopColor="#060d1a" />
+        </radialGradient>
+        <radialGradient id="qubitGrad" cx="35%" cy="35%" r="65%">
+          <stop offset="0%" stopColor="#3a80c0" />
+          <stop offset="100%" stopColor="#0d2a4a" />
+        </radialGradient>
+        <linearGradient id="borderGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="rgba(99,179,237,0.6)" />
+          <stop offset="50%" stopColor="rgba(99,179,237,0.2)" />
+          <stop offset="100%" stopColor="rgba(99,179,237,0.6)" />
+        </linearGradient>
+      </defs>
 
-  const components = design.components || [];
+      {/* Outer chip border */}
+      <rect x="20" y="20" width={W-40} height={H-40} rx="8"
+        fill="url(#chipGrad)" stroke="url(#borderGrad)" strokeWidth="1.5" />
 
-  components.forEach((c) => {
+      {/* Inner chip area */}
+      <rect x="40" y="40" width={W-80} height={H-80} rx="4"
+        fill="none" stroke="rgba(99,179,237,0.2)" strokeWidth="1" />
 
-    if (c.type === "qubit") {
-      ctx.fillStyle = "#4A90E2";
+      {/* Corner pads */}
+      {[[55,55],[W-55,55],[55,H-55],[W-55,H-55]].map(([x,y],i) => (
+        <rect key={i} x={x-10} y={y-10} width="20" height="20" rx="2"
+          fill="#1a3a5c" stroke="rgba(99,179,237,0.5)" strokeWidth="1" />
+      ))}
 
-      ctx.beginPath();
-      ctx.arc(
-        c.x * 100 + W / 2,
-        c.y * 100 + H / 2,
-        25,
-        0,
-        Math.PI * 2
-      );
+      {/* Edge bond pads */}
+      {[W/2-20, W/2+20].map((x,i) => (
+        <rect key={`t${i}`} x={x-8} y="26" width="16" height="12" rx="2"
+          fill="#1a3a5c" stroke="rgba(99,179,237,0.4)" strokeWidth="1" />
+      ))}
+      {[W/2-20, W/2+20].map((x,i) => (
+        <rect key={`b${i}`} x={x-8} y={H-38} width="16" height="12" rx="2"
+          fill="#1a3a5c" stroke="rgba(99,179,237,0.4)" strokeWidth="1" />
+      ))}
+      {[H/2-20, H/2+20].map((y,i) => (
+        <rect key={`l${i}`} x="26" y={y-8} width="12" height="16" rx="2"
+          fill="#1a3a5c" stroke="rgba(99,179,237,0.4)" strokeWidth="1" />
+      ))}
+      {[H/2-20, H/2+20].map((y,i) => (
+        <rect key={`r${i}`} x={W-38} y={y-8} width="12" height="16" rx="2"
+          fill="#1a3a5c" stroke="rgba(99,179,237,0.4)" strokeWidth="1" />
+      ))}
 
-      ctx.fill();
+      {/* Resonator lines */}
+      {resonators.map((r, i) => (
+        <g key={i} filter="url(#glow)">
+          <line
+            x1={px(r.x1)} y1={py(r.y1)}
+            x2={px(r.x2)} y2={py(r.y2)}
+            stroke="rgba(99,179,237,0.25)" strokeWidth="8"
+          />
+          <line
+            x1={px(r.x1)} y1={py(r.y1)}
+            x2={px(r.x2)} y2={py(r.y2)}
+            stroke={T.resonator} strokeWidth="1.5"
+          />
+          {/* Coupling symbol */}
+          {(() => {
+            const mx = (px(r.x1) + px(r.x2)) / 2;
+            const my = (py(r.y1) + py(r.y2)) / 2;
+            const len = 14;
+            return (
+              <g>
+                <rect x={mx-len/2} y={my-5} width={len} height="10" rx="2"
+                  fill="#0d2040" stroke="rgba(99,179,237,0.5)" strokeWidth="1" />
+                <line x1={mx-len/2} y1={my} x2={mx+len/2} y2={my}
+                  stroke="rgba(99,179,237,0.6)" strokeWidth="1" />
+              </g>
+            );
+          })()}
+        </g>
+      ))}
 
-      ctx.fillStyle = "#000";
-      ctx.fillText(
-        c.label,
-        c.x * 100 + W / 2 - 8,
-        c.y * 100 + H / 2 + 5
-      );
-    }
+      {/* Pads */}
+      {pads.map((p, i) => (
+        <rect key={i} x={px(p.x)-18} y={py(p.y)-18} width="36" height="36" rx="3"
+          fill={T.pad} stroke="rgba(99,179,237,0.4)" strokeWidth="1" />
+      ))}
 
-    if (c.type === "resonator") {
-      ctx.strokeStyle = "#444";
-      ctx.lineWidth = 3;
+      {/* Qubits */}
+      {qubits.map((q, i) => (
+        <g key={i} filter="url(#glow)">
+          {/* Outer ring glow */}
+          <circle cx={px(q.x)} cy={py(q.y)} r="34"
+            fill="rgba(99,179,237,0.05)" stroke="rgba(99,179,237,0.15)" strokeWidth="1" />
+          {/* Inner capacitor pads (cross shape) */}
+          <rect x={px(q.x)-22} y={py(q.y)-8} width="44" height="16" rx="3"
+            fill="url(#qubitGrad)" stroke="rgba(99,179,237,0.6)" strokeWidth="1" />
+          <rect x={px(q.x)-8} y={py(q.y)-22} width="16" height="44" rx="3"
+            fill="url(#qubitGrad)" stroke="rgba(99,179,237,0.6)" strokeWidth="1" />
+          {/* Junction indicator */}
+          <circle cx={px(q.x)} cy={py(q.y)} r="5"
+            fill="#63b3ed" filter="url(#glowStrong)" />
+          {/* Label */}
+          <text x={px(q.x)} y={py(q.y) - 38}
+            textAnchor="middle" fill="rgba(99,179,237,0.9)"
+            fontSize="10" fontFamily={T.fontMono} letterSpacing="1">
+            {q.label}
+          </text>
+        </g>
+      ))}
 
-      ctx.beginPath();
-
-      ctx.moveTo(
-        c.x1 * 100 + W / 2,
-        c.y1 * 100 + H / 2
-      );
-
-      ctx.lineTo(
-        c.x2 * 100 + W / 2,
-        c.y2 * 100 + H / 2
-      );
-
-      ctx.stroke();
-    }
-
-    if (c.type === "pad") {
-      ctx.fillStyle = "#999";
-
-      ctx.fillRect(
-        c.x * 100 + W / 2 - 20,
-        c.y * 100 + H / 2 - 20,
-        40,
-        40
-      );
-    }
-  });
+      {/* Chip label */}
+      <text x={W/2} y={H-28}
+        textAnchor="middle" fill="rgba(99,179,237,0.4)"
+        fontSize="9" fontFamily={T.fontMono} letterSpacing="3">
+        {(design?.substrate || "SILICON").toUpperCase()} / {qubits.length}Q
+      </text>
+    </svg>
+  );
 }
 
 // ─────────────────────────────────────────────────────────────
 // Demo Design
 // ─────────────────────────────────────────────────────────────
 const DEMO_DESIGN = {
-  substrate: "silicon",
-
-  description: "Demo chip",
-
+  substrate: "superconducting",
+  description: "4-qubit square lattice",
+  topology: "Square lattice",
+  estimate: "Balanced",
   components: [
-    {
-      type: "qubit",
-      x: -1,
-      y: 0,
-      label: "Q1",
-    },
-
-    {
-      type: "qubit",
-      x: 1,
-      y: 0,
-      label: "Q2",
-    },
-
-    {
-      type: "resonator",
-      x1: -1,
-      y1: 0,
-      x2: 1,
-      y2: 0,
-    },
+    { type: "qubit", x: -1, y: -1, label: "Q1" },
+    { type: "qubit", x: 1, y: -1, label: "Q2" },
+    { type: "qubit", x: -1, y: 1, label: "Q3" },
+    { type: "qubit", x: 1, y: 1, label: "Q4" },
+    { type: "resonator", x1: -1, y1: -1, x2: 1, y2: -1 },
+    { type: "resonator", x1: -1, y1: 1, x2: 1, y2: 1 },
+    { type: "resonator", x1: -1, y1: -1, x2: -1, y2: 1 },
+    { type: "resonator", x1: 1, y1: -1, x2: 1, y2: 1 },
   ],
 };
 
 // ─────────────────────────────────────────────────────────────
-// App
+// Stat Card
+// ─────────────────────────────────────────────────────────────
+function StatCard({ label, value }) {
+  return (
+    <div style={{
+      border: `1px solid ${T.border}`,
+      borderRadius: 6,
+      padding: "14px 18px",
+      marginBottom: 10,
+      background: T.accentDim,
+    }}>
+      <div style={{ fontSize: 10, color: T.textMuted, fontFamily: T.fontMono, letterSpacing: 2, marginBottom: 5 }}>
+        {label.toUpperCase()}
+      </div>
+      <div style={{ fontSize: 18, color: T.text, fontFamily: T.fontDisplay, fontWeight: 600 }}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Main App
 // ─────────────────────────────────────────────────────────────
 export default function App() {
-
   const [messages, setMessages] = useState([
-    {
-      role: "bot",
-      text:
-        'Describe a quantum chip.\nExample:\n"3 qubits connected with resonators"',
-    },
+    { role: "bot", text: 'Describe a quantum chip to generate.\n\nExample: "3 qubits in a linear chain with resonators"' },
   ]);
-
   const [prompt, setPrompt] = useState("");
-
   const [loading, setLoading] = useState(false);
-
   const [design, setDesign] = useState(DEMO_DESIGN);
-
-  const canvasRef = useRef(null);
-
   const msgsRef = useRef(null);
 
   useEffect(() => {
+    if (msgsRef.current) msgsRef.current.scrollTop = msgsRef.current.scrollHeight;
+  }, [messages]);
 
-    if (canvasRef.current) {
-
-      const canvas = canvasRef.current;
-
-      canvas.width = canvas.offsetWidth;
-
-      canvas.height = canvas.offsetHeight;
-
-      renderDesign(canvas, design);
-    }
-
-  }, [design]);
+  const qubits = (design?.components || []).filter(c => c.type === "qubit");
+  const resonators = (design?.components || []).filter(c => c.type === "resonator");
 
   async function generate() {
-
-    if (!prompt.trim()) return;
-
+    if (!prompt.trim() || loading) return;
     const userPrompt = prompt;
-
     setPrompt("");
-
     setLoading(true);
-
-    setMessages((m) => [
-      ...m,
-      { role: "user", text: userPrompt },
-    ]);
+    setMessages(m => [...m, { role: "user", text: userPrompt }]);
 
     try {
-
-      console.log("Sending request...");
-
-      const response = await fetch(
-        "http://127.0.0.1:5000/generate-chip",
-        {
-          method: "POST",
-
-          headers: {
-            "Content-Type": "application/json",
-          },
-
-          body: JSON.stringify({
-            prompt: userPrompt,
-          }),
-        }
-      );
-
-      console.log("Response received");
-
+      const response = await fetch("http://127.0.0.1:5000/generate-chip", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: userPrompt }),
+      });
       const data = await response.json();
-
-      console.log(data);
-
-      if (data.error) {
-        throw new Error(data.error);
-      }
-
-      if (!data.design) {
-        throw new Error("No design returned");
-      }
-
+      if (data.error) throw new Error(data.error);
+      if (!data.design) throw new Error("No design returned");
       setDesign(data.design);
-
-      setMessages((m) => [
-        ...m,
-        {
-          role: "bot",
-          text: "Quantum chip generated successfully",
-        },
-      ]);
-
+      setMessages(m => [...m, { role: "bot", text: `✓ Chip generated — ${data.design.description || userPrompt}` }]);
     } catch (err) {
-
-      console.error(err);
-
-      setMessages((m) => [
-        ...m,
-        {
-          role: "bot",
-          text: `Error: ${err.message}`,
-        },
-      ]);
+      setMessages(m => [...m, { role: "bot", text: `Error: ${err.message}` }]);
     }
-
     setLoading(false);
   }
 
+  function handleKey(e) {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); generate(); }
+  }
+
   return (
-    <div style={S.app}>
-
-      {/* LEFT PANEL */}
-
-      <div style={S.left}>
-
-        <div style={S.chatHead}>
-          <div style={S.led}></div>
-          <span style={S.headTitle}>
-            Quantum Chip Designer
-          </span>
+    <div style={{
+      display: "flex", flexDirection: "column", height: "100vh",
+      background: T.bg, fontFamily: T.fontMono, color: T.text,
+    }}>
+      {/* ── Top Bar ── */}
+      <div style={{
+        padding: "14px 28px", borderBottom: `1px solid ${T.border}`,
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        background: T.panel,
+      }}>
+        <div>
+          <div style={{ fontSize: 9, color: T.textMuted, letterSpacing: 3, marginBottom: 3 }}>
+            QUANTUM CHIP DESIGN ASSISTANT
+          </div>
+          <div style={{ fontSize: 24, fontFamily: T.fontDisplay, fontWeight: 700, letterSpacing: 1, color: T.text }}>
+            Q-Chip Studio
+          </div>
         </div>
+        <div style={{
+          width: 34, height: 34, borderRadius: 6,
+          border: `1px solid ${T.border}`, background: T.accentDim,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          color: T.textMuted, fontSize: 13, cursor: "pointer",
+        }}>D</div>
+      </div>
 
-        <div ref={msgsRef} style={S.msgs}>
+      {/* ── Body ── */}
+      <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
 
-          {messages.map((m, i) => (
-            <div
-              key={i}
-              style={
-                m.role === "user"
-                  ? S.msgUser
-                  : S.msgBot
-              }
+        {/* ── Chat Panel ── */}
+        <div style={{
+          width: 320, minWidth: 320, display: "flex", flexDirection: "column",
+          borderRight: `1px solid ${T.border}`, background: T.panel,
+        }}>
+          <div ref={msgsRef} style={{
+            flex: 1, overflowY: "auto", padding: "16px 14px",
+            display: "flex", flexDirection: "column", gap: 10,
+          }}>
+            {messages.map((m, i) => (
+              <div key={i} style={m.role === "user" ? {
+                alignSelf: "flex-end", background: T.userBubble,
+                border: `1px solid rgba(99,179,237,0.2)`,
+                borderRadius: "10px 10px 2px 10px",
+                padding: "9px 13px", fontSize: 12, lineHeight: 1.6,
+                maxWidth: "85%", color: T.text, whiteSpace: "pre-wrap",
+              } : {
+                alignSelf: "flex-start", background: T.botBubble,
+                border: `1px solid ${T.border}`,
+                borderRadius: "10px 10px 10px 2px",
+                padding: "9px 13px", fontSize: 12, lineHeight: 1.6,
+                maxWidth: "85%", color: T.textMuted, whiteSpace: "pre-wrap",
+              }}>
+                {m.text}
+              </div>
+            ))}
+            {loading && (
+              <div style={{
+                alignSelf: "flex-start", background: T.botBubble,
+                border: `1px solid ${T.border}`,
+                borderRadius: "10px 10px 10px 2px",
+                padding: "9px 13px", fontSize: 12, color: T.textDim,
+                fontStyle: "italic",
+              }}>generating…</div>
+            )}
+          </div>
+
+          <div style={{
+            padding: 12, borderTop: `1px solid ${T.border}`,
+            display: "flex", gap: 8, alignItems: "flex-end",
+          }}>
+            <textarea
+              value={prompt}
+              onChange={e => setPrompt(e.target.value)}
+              onKeyDown={handleKey}
+              placeholder="Describe chip layout…"
+              style={{
+                flex: 1, background: "#0a1020",
+                border: `1px solid ${T.border}`,
+                borderRadius: 7, padding: "9px 11px",
+                fontSize: 12, fontFamily: T.fontMono,
+                color: T.text, resize: "none", height: 68, outline: "none",
+              }}
+            />
+            <button
+              onClick={generate}
+              disabled={loading}
+              style={{
+                height: 68, padding: "0 16px",
+                background: loading ? "#0d2040" : "linear-gradient(135deg, #1a4a7a, #0d2a4a)",
+                color: loading ? T.textDim : T.accent,
+                border: `1px solid ${loading ? T.border : T.borderBright}`,
+                borderRadius: 7, fontSize: 12, fontFamily: T.fontMono,
+                fontWeight: 600, cursor: loading ? "not-allowed" : "pointer",
+                letterSpacing: 1, transition: "all 0.2s",
+              }}
             >
-              {m.text}
-            </div>
-          ))}
-
+              {loading ? "···" : "Generate"}
+            </button>
+          </div>
         </div>
 
-        <div style={S.inpArea}>
-
-          <textarea
-            style={S.textarea}
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            placeholder="Describe chip..."
-          />
-
-          <button
-            style={S.sendBtn}
-            onClick={generate}
-            disabled={loading}
-          >
-            {loading ? "..." : "Generate"}
-          </button>
-
+        {/* ── Chip Viewer ── */}
+        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: 32, background: T.bg }}>
+          <div style={{
+            width: "min(480px, 90%)", aspectRatio: "1",
+            border: `1px solid ${T.borderBright}`,
+            borderRadius: 10, overflow: "hidden",
+            boxShadow: `0 0 60px rgba(99,179,237,0.08), 0 0 120px rgba(99,179,237,0.04)`,
+          }}>
+            <ChipCanvas design={design} />
+          </div>
         </div>
 
+        {/* ── Stats Panel ── */}
+        <div style={{
+          width: 220, minWidth: 220, padding: 20,
+          borderLeft: `1px solid ${T.border}`, background: T.panel,
+        }}>
+          <StatCard label="Qubits" value={qubits.length} />
+          <StatCard label="Topology" value={design?.topology || (resonators.length > 0 ? "Coupled" : "Isolated")} />
+          <StatCard label="Estimate" value={design?.estimate || "Balanced"} />
+          <StatCard label="Substrate" value={(design?.substrate || "Silicon").charAt(0).toUpperCase() + (design?.substrate || "silicon").slice(1)} />
+          <StatCard label="Couplers" value={resonators.length} />
+        </div>
       </div>
-
-      {/* RIGHT PANEL */}
-
-      <div style={S.right}>
-
-        <div style={S.cvHead}>
-          <span style={S.cvLabel}>
-            chip_layout
-          </span>
-        </div>
-
-        <div style={S.cvWrap}>
-
-          <canvas
-            ref={canvasRef}
-            style={{
-              width: "100%",
-              height: "100%",
-              display: "block",
-            }}
-          />
-
-        </div>
-
-      </div>
-
     </div>
   );
 }
